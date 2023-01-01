@@ -1,0 +1,9 @@
+*) incorporate reverse polynomial Aberth updates for numerical stability ---  done, but needs to double check 
+
+*) add check for a_0 * a_n != 0, and add mitigation steps
+
+*) add example of use
+
+*) is group allocation implemented or not??  is complete or not??
+
+
