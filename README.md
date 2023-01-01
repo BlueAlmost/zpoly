@@ -3,7 +3,7 @@ zig polynomial tools for real and complex coefficients
 
 Implements polynomial root finding, and basic polynomial functions.
 
-* root finding (based on: 
+* root finding
 * multiplication
 * addition
 * evaluation
