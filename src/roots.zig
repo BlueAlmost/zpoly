@@ -22,16 +22,12 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
 
     // detemine n_bytes needed (add extra slop for alignments)
     var n_bytes: usize = 0;
-    inline for (std.meta.fields(@TypeOf(X.*))) |f, i| {
-      
+    inline for (std.meta.fields(@TypeOf(X.*)), 0..) |f, i| {
+
         // n_bytes += @sizeOf(f.field_type) + args[i] * @sizeOf(Child(f.field_type));
-        
-        
+
         n_bytes += @sizeOf(f.type) + args[i] * @sizeOf(Child(f.type));
-        
-        
-       
-       
+
         n_bytes += 4 * @sizeOf(usize);
     }
 
@@ -43,7 +39,7 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
     var end: usize = undefined;
     var f_bytes: usize = 0;
 
-    inline for (std.meta.fields(@TypeOf(X.*))) |f, i| {
+    inline for (std.meta.fields(@TypeOf(X.*)), 0..) |f, i| {
 
         // calculate end for this struct field
         comptime var child_type: type = Child(f.type);
@@ -198,12 +194,12 @@ pub fn roots(comptime A: type, allocator: Allocator, a: Polynomial(A), x: []ToCm
     // see lines below equation 14 in Bini
     // s_tilde has strictly real coefficients, evaluated on strictly real arguments
 
-    for (a.val) |aval, i| {
+    for (a.val, 0..) |aval, i| {
         workspace.s_tilde_tmp[i] = fabs(A, aval) * @intToFloat(R, (4 * i + 1));
     }
     s_tilde.val = workspace.s_tilde_tmp;
 
-    for (workspace.stop_flags) |_, i| {
+    for (workspace.stop_flags, 0..) |_, i| {
         workspace.stop_flags[i] = false;
     }
 
@@ -691,7 +687,7 @@ test "\t roots,\t real polynomial \t aberthIterations \n" {
         a.val[6] = -4.1;
 
         var s_tilde = try Polynomial(R).init(allocator, n, n);
-        for (a.val) |aval, i| {
+        for (a.val, 0..) |aval, i| {
             s_tilde.val[i] = fabs(R, aval) * @intToFloat(R, (4 * i + 1));
         }
 
@@ -958,7 +954,7 @@ test "\t roots,\t complex polynomial \t aberthIterations \n" {
         a.val[6].im = -1.2;
 
         var s_tilde = try Polynomial(R).init(allocator, n, n);
-        for (a.val) |aval, i| {
+        for (a.val, 0..) |aval, i| {
             s_tilde.val[i] = fabs(C, aval) * @intToFloat(R, (4 * i + 1));
         }
 
