@@ -48,7 +48,8 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
 
         // partition raw into slice for field, and set length
         @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name) =
-            @alignCast(@alignOf(child_type), bytesAsSlice(child_type, raw_bytes[start..end]));
+            //@alignCast(@alignOf(child_type), bytesAsSlice(child_type, raw_bytes[start..end]));
+            @alignCast(bytesAsSlice(child_type, raw_bytes[start..end]));
 
         @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name).len = args[i];
 
@@ -195,7 +196,7 @@ pub fn roots(comptime A: type, allocator: Allocator, a: Polynomial(A), x: []ToCm
     // s_tilde has strictly real coefficients, evaluated on strictly real arguments
 
     for (a.val, 0..) |aval, i| {
-        workspace.s_tilde_tmp[i] = fabs(A, aval) * @intToFloat(R, (4 * i + 1));
+        workspace.s_tilde_tmp[i] = fabs(A, aval) * @as(R, @floatFromInt((4 * i + 1)));
     }
     s_tilde.val = workspace.s_tilde_tmp;
 
@@ -241,8 +242,8 @@ pub fn upperConvexHull(comptime A: type, a: Polynomial(A), k: *[]usize, hull: *[
             // 1st vector joins a w/ b (called "ab"), has components ab_x, and ab_y
             // 2nd vector joins b w/ c (called "bc"), etc.
 
-            var ab_x: R = @intToFloat(R, k.ptr[len - 2] - k.ptr[len - 3]);
-            var bc_x: R = @intToFloat(R, k.ptr[len - 1] - k.ptr[len - 2]);
+            var ab_x: R = @as(R, @floatFromInt(k.ptr[len - 2] - k.ptr[len - 3]));
+            var bc_x: R = @as(R, @floatFromInt(k.ptr[len - 1] - k.ptr[len - 2]));
 
             var ab_y: R = hull.ptr[len - 2] - hull.ptr[len - 3];
             var bc_y: R = hull.ptr[len - 1] - hull.ptr[len - 2];
@@ -273,7 +274,7 @@ pub fn computeModulii(comptime A: type, a: Polynomial(A), k: []usize, u: []Value
     var i: usize = 1;
     while (i < q) : (i += 1) {
         base = fabs(A, a.val[k[i - 1]]) / fabs(A, a.val[k[i]]);
-        exp = (1.0 / @intToFloat(R, (k[i] - k[i - 1])));
+        exp = (1.0 / @as(R, @floatFromInt((k[i] - k[i - 1]))));
         u[i - 1] = math.pow(R, base, exp);
     }
     // NOTICE that (unlike in Bini's paper, which does not use index 0,
@@ -293,8 +294,8 @@ pub fn initialRootEst(comptime T: type, k: []usize, u: []T, r: []Complex(T)) voi
     while (i < q - 1) : (i += 1) {
         var j: usize = 0;
         while (j < k[i + 1] - k[i]) : (j += 1) {
-            alpha = 2 * math.pi * @intToFloat(T, j + 1) / @intToFloat(T, k[i + 1] - k[i]);
-            beta = (2 * math.pi * @intToFloat(T, (i + 1))) / @intToFloat(T, n);
+            alpha = 2 * math.pi * @as(T, @floatFromInt(j + 1)) / @as(T, @floatFromInt(k[i + 1] - k[i]));
+            beta = (2 * math.pi * @as(T, @floatFromInt((i + 1)))) / @as(T, @floatFromInt(n));
 
             phi = alpha + beta + sigma;
 
@@ -337,8 +338,8 @@ pub fn aberth(comptime P: type, max_iter: usize, p: Polynomial(P), s_tilde: Poly
                 var term1: C = undefined;
                 var term2: C = undefined;
 
-                term1.re = @intToFloat(R, n) * gamma.re;
-                term1.im = @intToFloat(R, n) * gamma.im;
+                term1.re = @as(R, @floatFromInt(n)) * gamma.re;
+                term1.im = @as(R, @floatFromInt(n)) * gamma.im;
 
                 term2 = product(C, gamma_sqr, tmp);
 
@@ -688,7 +689,7 @@ test "\t roots,\t real polynomial \t aberthIterations \n" {
 
         var s_tilde = try Polynomial(R).init(allocator, n, n);
         for (a.val, 0..) |aval, i| {
-            s_tilde.val[i] = fabs(R, aval) * @intToFloat(R, (4 * i + 1));
+            s_tilde.val[i] = fabs(R, aval) * @as(R, @floatFromInt((4 * i + 1)));
         }
 
         var stop_flags: []bool = try allocator.alloc(bool, n - 1);
@@ -955,7 +956,7 @@ test "\t roots,\t complex polynomial \t aberthIterations \n" {
 
         var s_tilde = try Polynomial(R).init(allocator, n, n);
         for (a.val, 0..) |aval, i| {
-            s_tilde.val[i] = fabs(C, aval) * @intToFloat(R, (4 * i + 1));
+            s_tilde.val[i] = fabs(C, aval) * @as(R, @floatFromInt((4 * i + 1)));
         }
 
         var stop_flags: []bool = try allocator.alloc(bool, n - 1);

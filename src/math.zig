@@ -93,7 +93,7 @@ pub fn evalDeriv(comptime A: type, comptime X: type, a: Polynomial(A), x: X) Eit
                     g = 0;
                     var i: usize = 1;
                     while (i < a.val.len) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i)));
                         g = n_tmp * a.val[a.val.len - i] + x * g;
                     }
                     return g;
@@ -103,7 +103,7 @@ pub fn evalDeriv(comptime A: type, comptime X: type, a: Polynomial(A), x: X) Eit
                     var g_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i)));
                         var a_tmp: A = a.val[a.val.len - i];
                         g_tmp.re = g.re;
                         g_tmp.im = g.im;
@@ -126,7 +126,7 @@ pub fn evalDeriv(comptime A: type, comptime X: type, a: Polynomial(A), x: X) Eit
                     var a_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i)));
                         a_tmp.re = a.val[a.val.len - i].re;
                         a_tmp.im = a.val[a.val.len - i].im;
 
@@ -144,7 +144,7 @@ pub fn evalDeriv(comptime A: type, comptime X: type, a: Polynomial(A), x: X) Eit
                     var a_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i)));
                         a_tmp.re = a.val[a.val.len - i].re;
                         a_tmp.im = a.val[a.val.len - i].im;
 
@@ -190,7 +190,7 @@ pub fn evalDerivRev(comptime A: type, comptime X: type, a: Polynomial(A), x: X) 
                     g = 0;
                     var i: usize = 0;
                     while (i < a.val.len - 1) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i - 1));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i - 1)));
                         g = n_tmp * a.val[i] + x * g;
                     }
                     return g;
@@ -200,7 +200,7 @@ pub fn evalDerivRev(comptime A: type, comptime X: type, a: Polynomial(A), x: X) 
                     var g_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len - 1) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i - 1));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i - 1)));
                         var a_tmp: A = a.val[i];
                         g_tmp.re = g.re;
                         g_tmp.im = g.im;
@@ -223,7 +223,7 @@ pub fn evalDerivRev(comptime A: type, comptime X: type, a: Polynomial(A), x: X) 
                     var a_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len - 1) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i - 1));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i - 1)));
                         a_tmp.re = a.val[i].re;
                         a_tmp.im = a.val[i].im;
 
@@ -241,7 +241,7 @@ pub fn evalDerivRev(comptime A: type, comptime X: type, a: Polynomial(A), x: X) 
                     var a_tmp: G = undefined;
                     g = G.init(0, 0);
                     while (i < a.val.len - 1) : (i += 1) {
-                        n_tmp = @intToFloat(R, (a.val.len - i - 1));
+                        n_tmp = @as(R, @floatFromInt((a.val.len - i - 1)));
                         a_tmp.re = a.val[i].re;
                         a_tmp.im = a.val[i].im;
 
