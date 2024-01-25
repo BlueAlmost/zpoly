@@ -16,8 +16,7 @@ pub fn fabs(comptime T: type, x: T) ValueType(T) {
             return @abs(x);
         },
         Complex(f32), Complex(f64) => {
-            const R: type = ValueType(T);
-            return std.math.hypot(R, x.re, x.im);
+            return std.math.hypot(x.re, x.im);
         },
         else => {
             @compileError("type not implemented");
