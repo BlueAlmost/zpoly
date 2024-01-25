@@ -1,0 +1,10 @@
+.{
+    .name = "zpoly_example",
+    .version = "0.0.1",
+    .paths = .{""},
+    .dependencies = .{
+        .zpoly_zon_name = .{
+            .path = "../zpoly",
+        },
+    },
+}

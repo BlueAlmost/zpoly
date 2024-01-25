@@ -7,10 +7,11 @@ const bytesAsSlice = std.mem.bytesAsSlice;
 const print = std.debug.print;
 const math = std.math;
 const Complex = std.math.Complex;
-const hypot = std.math.hypot;
 
 const zpoly = @import("../zpoly.zig");
-const Polynomial = zpoly.Polynomial;
+const cmath = zpoly.cmath;
+
+const fabs = zpoly.fabs;
 const eval = zpoly.eval;
 const evalDeriv = zpoly.evalDeriv;
 const evalRev = zpoly.evalRev;
@@ -23,11 +24,7 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
     // detemine n_bytes needed (add extra slop for alignments)
     var n_bytes: usize = 0;
     inline for (std.meta.fields(@TypeOf(X.*)), 0..) |f, i| {
-
-        // n_bytes += @sizeOf(f.field_type) + args[i] * @sizeOf(Child(f.field_type));
-
         n_bytes += @sizeOf(f.type) + args[i] * @sizeOf(Child(f.type));
-
         n_bytes += 4 * @sizeOf(usize);
     }
 
@@ -42,13 +39,12 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
     inline for (std.meta.fields(@TypeOf(X.*)), 0..) |f, i| {
 
         // calculate end for this struct field
-        comptime var child_type: type = Child(f.type);
+        const child_type: type = Child(f.type);
         f_bytes = @sizeOf(f.type) + args[i] * @sizeOf(child_type);
         end = start + f_bytes;
 
         // partition raw into slice for field, and set length
         @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name) =
-            //@alignCast(@alignOf(child_type), bytesAsSlice(child_type, raw_bytes[start..end]));
             @alignCast(bytesAsSlice(child_type, raw_bytes[start..end]));
 
         @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name).len = args[i];
@@ -65,13 +61,12 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
 // Aberth's method", Numerical Algorithms, Feb 1996.
 //
 // The notation and variable names used here agree with article wherever possible.
-//
 
-fn stop_criterion(comptime P: type, comptime C: type, a: Polynomial(P), s_tilde: Polynomial(ValueType(P)), x: C) bool {
+fn stop_criterion(comptime P: type, comptime C: type, a: []P, s_tilde: []ValueType(P), x: C) bool {
 
     // Bini equation 15
 
-    comptime var R: type = ValueType(P);
+    const R: type = ValueType(P);
     var mu: R = undefined;
 
     switch (R) {
@@ -86,8 +81,8 @@ fn stop_criterion(comptime P: type, comptime C: type, a: Polynomial(P), s_tilde:
         },
     }
 
-    var lhs: R = fabs(C, eval(P, C, a, x));
-    var rhs: R = mu * eval(R, R, s_tilde, fabs(C, x)); // this is strictly non-negative
+    const lhs: R = fabs(C, eval(P, C, a, x));
+    const rhs: R = mu * eval(R, R, s_tilde, fabs(C, x)); // this is strictly non-negative
 
     if (lhs < rhs) {
         return true;
@@ -102,10 +97,7 @@ fn product(comptime T: type, x: T, y: T) T {
             return x * y;
         },
         Complex(f32), Complex(f64) => {
-            var p: T = undefined;
-            p.re = x.re * y.re - x.im * y.im;
-            p.im = x.re * y.im + x.im * y.re;
-            return p;
+            return cmath.mul(x, y);
         },
         else => {
             @compileError("product for data type not implement");
@@ -118,18 +110,10 @@ fn quotient(comptime T: type, num: T, den: T) T {
         f32, f64 => {
             return num / den;
         },
-        Complex(f32) => {
-            var tmp: f32 = 1 / (den.re * den.re + den.im * den.im);
-            var quo: T = undefined;
+        Complex(f32), Complex(f64) => {
+            const tmp: ValueType(T) = 1 / (den.re * den.re + den.im * den.im);
 
-            quo.re = tmp * (num.re * den.re + num.im * den.im);
-            quo.im = tmp * (-num.re * den.im + num.im * den.re);
-            return quo;
-        },
-        Complex(f64) => {
-            var tmp: f64 = 1 / (den.re * den.re + den.im * den.im);
             var quo: T = undefined;
-
             quo.re = tmp * (num.re * den.re + num.im * den.im);
             quo.im = tmp * (-num.re * den.im + num.im * den.re);
             return quo;
@@ -146,10 +130,7 @@ fn recip(comptime T: type, x: T) T {
             return 1 / x;
         },
         Complex(f32), Complex(f64) => {
-            var x_recip: T = undefined;
-            x_recip.re = x.re / (x.re * x.re + x.im * x.im);
-            x_recip.im = -x.im / (x.re * x.re + x.im * x.im);
-            return x_recip;
+            return cmath.recip(x);
         },
         else => {
             @compileError("reciprocal for data type not implement");
@@ -157,28 +138,43 @@ fn recip(comptime T: type, x: T) T {
     }
 }
 
-fn fabs(comptime T: type, x: T) ValueType(T) {
-    switch (T) {
-        f32, f64 => {
-            return @fabs(x);
-        },
-        Complex(f32), Complex(f64) => {
-            const R: type = ValueType(T);
-            return hypot(R, x.re, x.im);
-            // var xre: R = x.re;
-            // var xim: R = x.im;
-            // return @fabs( @sqrt(xre*xre + xim*xim));
-        },
-        else => {
-            @compileError("type not implemented");
-        },
+pub fn roots(comptime A: type, allocator: Allocator, a: []A, x: []ToCmpx(A)) !void {
+    var idx_high: usize = a.len;
+    while (idx_high != 0) {
+        idx_high -= 1;
+        if (fabs(A, a[idx_high]) != 0) {
+            break;
+        }
     }
+
+    var idx_low: usize = 0;
+    while (idx_low != idx_high) : (idx_low += 1) {
+        if (fabs(A, a[idx_low]) != 0) {
+            break;
+        }
+    }
+
+    var i: usize = 0;
+    while (i < x.len) : (i += 1) {
+        x[i].re = 0;
+        x[i].im = 0;
+    }
+
+    try roots_internal(A, allocator, a[idx_low .. idx_high + 1], x[0 .. idx_high - idx_low]);
 }
 
-pub fn roots(comptime A: type, allocator: Allocator, a: Polynomial(A), x: []ToCmpx(A)) !void {
+fn roots_internal(comptime A: type, allocator: Allocator, a: []A, x: []ToCmpx(A)) !void {
     const R = ValueType(A);
 
-    var s_tilde: Polynomial(R) = undefined;
+    // root finding algorithm requires non-zero leading and trailing coefficients,
+    // (e.g. a_n * a_0 != 0).
+    if (fabs(A, a[a.len - 1]) == 0) {
+        return error.LeadingCoefficientIsZero;
+    } else if (fabs(A, a[0]) == 0) {
+        return error.TrailingCoefficientIsZero;
+    }
+
+    var s_tilde: []R = undefined;
 
     const Workspace = struct {
         k: []usize,
@@ -188,52 +184,64 @@ pub fn roots(comptime A: type, allocator: Allocator, a: Polynomial(A), x: []ToCm
         stop_flags: []bool,
     };
 
-    var len: usize = a.val.len;
+    const len: usize = a.len;
     var workspace: Workspace = undefined;
-    var raw_bytes = try allocStructSlices(allocator, &workspace, .{ len, len, len, len, len });
+    const raw_bytes = try allocStructSlices(allocator, &workspace, .{ len, len, len, len, len });
 
     // see lines below equation 14 in Bini
     // s_tilde has strictly real coefficients, evaluated on strictly real arguments
 
-    for (a.val, 0..) |aval, i| {
+    for (a, 0..) |aval, i| {
         workspace.s_tilde_tmp[i] = fabs(A, aval) * @as(R, @floatFromInt((4 * i + 1)));
     }
-    s_tilde.val = workspace.s_tilde_tmp;
+    s_tilde = workspace.s_tilde_tmp;
 
     for (workspace.stop_flags, 0..) |_, i| {
         workspace.stop_flags[i] = false;
     }
 
     upperConvexHull(A, a, &workspace.k, &workspace.hull);
-
     computeModulii(A, a, workspace.k, workspace.u);
-
     initialRootEst(R, workspace.k, workspace.u, x);
 
     const max_iter = 20;
-
     aberth(A, max_iter, a, s_tilde, workspace.stop_flags, x);
-
     allocator.free(raw_bytes);
 }
 
-pub fn upperConvexHull(comptime A: type, a: Polynomial(A), k: *[]usize, hull: *[]ValueType(A)) void {
+pub fn upperConvexHull(comptime A: type, a: []A, k: *[]usize, hull: *[]ValueType(A)) void {
     const R = ValueType(A);
+
+    const tiny_neg = -1e-20;
 
     k.ptr[0] = 0;
     k.ptr[1] = 1;
 
-    hull.ptr[0] = math.log(R, 2.0, fabs(A, a.val[0]));
-    hull.ptr[1] = math.log(R, 2.0, fabs(A, a.val[1]));
+    if (fabs(A, a[0]) == 0) {
+        hull.ptr[0] = tiny_neg;
+    } else {
+        hull.ptr[0] = math.log(R, 2.0, fabs(A, a[0]));
+    }
+
+    if (fabs(A, a[1]) == 0) {
+        hull.ptr[1] = tiny_neg;
+    } else {
+        hull.ptr[1] = math.log(R, 2.0, fabs(A, a[1]));
+    }
 
     var len: usize = 2;
     var i: usize = 2;
-    while (i < a.val.len) : (i += 1) {
+    while (i < a.len) : (i += 1) {
 
         // append to lists
         len += 1;
         k.ptr[len - 1] = i;
-        hull.ptr[len - 1] = math.log(R, 2.0, fabs(A, a.val[i]));
+
+        if (fabs(A, a[i]) == 0) {
+            hull.ptr[len - 1] = tiny_neg;
+        } else {
+            hull.ptr[len - 1] = math.log(R, 2.0, fabs(A, a[i]));
+        }
 
         while (len > 2) {
 
@@ -242,13 +250,13 @@ pub fn upperConvexHull(comptime A: type, a: Polynomial(A), k: *[]usize, hull: *[
             // 1st vector joins a w/ b (called "ab"), has components ab_x, and ab_y
             // 2nd vector joins b w/ c (called "bc"), etc.
 
-            var ab_x: R = @as(R, @floatFromInt(k.ptr[len - 2] - k.ptr[len - 3]));
-            var bc_x: R = @as(R, @floatFromInt(k.ptr[len - 1] - k.ptr[len - 2]));
+            const ab_x: R = @as(R, @floatFromInt(k.ptr[len - 2] - k.ptr[len - 3]));
+            const bc_x: R = @as(R, @floatFromInt(k.ptr[len - 1] - k.ptr[len - 2]));
 
-            var ab_y: R = hull.ptr[len - 2] - hull.ptr[len - 3];
-            var bc_y: R = hull.ptr[len - 1] - hull.ptr[len - 2];
+            const ab_y: R = hull.ptr[len - 2] - hull.ptr[len - 3];
+            const bc_y: R = hull.ptr[len - 1] - hull.ptr[len - 2];
 
-            var cross: R = ab_x * bc_y - ab_y * bc_x;
+            const cross: R = ab_x * bc_y - ab_y * bc_x;
             if (cross >= 0) {
                 // if does not make a "right turn" then
                 // delete middle point (point b) from list
@@ -260,20 +268,21 @@ pub fn upperConvexHull(comptime A: type, a: Polynomial(A), k: *[]usize, hull: *[
             }
         }
     }
+
     k.len = len;
     hull.len = len;
 }
 
-pub fn computeModulii(comptime A: type, a: Polynomial(A), k: []usize, u: []ValueType(A)) void {
+pub fn computeModulii(comptime A: type, a: []A, k: []usize, u: []ValueType(A)) void {
     const R = ValueType(A);
 
-    var q: usize = k.len;
+    const q: usize = k.len;
     var base: R = undefined;
     var exp: R = undefined;
 
     var i: usize = 1;
     while (i < q) : (i += 1) {
-        base = fabs(A, a.val[k[i - 1]]) / fabs(A, a.val[k[i]]);
+        base = fabs(A, a[k[i - 1]]) / fabs(A, a[k[i]]);
         exp = (1.0 / @as(R, @floatFromInt((k[i] - k[i - 1]))));
         u[i - 1] = math.pow(R, base, exp);
     }
@@ -282,8 +291,8 @@ pub fn computeModulii(comptime A: type, a: Polynomial(A), k: []usize, u: []Value
 }
 
 pub fn initialRootEst(comptime T: type, k: []usize, u: []T, r: []Complex(T)) void {
-    var q: usize = k.len;
-    var n: usize = k[k.len - 1];
+    const q: usize = k.len;
+    const n: usize = k[k.len - 1];
 
     var alpha: T = undefined;
     var beta: T = undefined;
@@ -298,23 +307,19 @@ pub fn initialRootEst(comptime T: type, k: []usize, u: []T, r: []Complex(T)) voi
             beta = (2 * math.pi * @as(T, @floatFromInt((i + 1)))) / @as(T, @floatFromInt(n));
 
             phi = alpha + beta + sigma;
-
             r[k[i] + j].re = u[i] * @cos(phi);
             r[k[i] + j].im = u[i] * @sin(phi);
         }
     }
 }
 
-pub fn aberth(comptime P: type, max_iter: usize, p: Polynomial(P), s_tilde: Polynomial(ValueType(P)), stop_flags: []bool, x: []ToCmpx(P)) void {
+pub fn aberth(comptime P: type, max_iter: usize, p: []P, s_tilde: []ValueType(P), stop_flags: []bool, x: []ToCmpx(P)) void {
     const C = ToCmpx(P);
     const R = ValueType(P);
 
-    var n: usize = p.val.len - 1; // number of roots
+    const n: usize = p.len - 1; // number of roots
 
     var px_dpx: C = undefined; // p(x) / p'(x)
-
-    var diff_x: C = undefined; // x[i]-x[j]  and later (1/(x[i]-x[j]))
-    var sum_recip_diff_x: C = undefined; // sum of (1/(x[i]-x[j]))
 
     var update_den: C = undefined; // Aberth update denominator
     var update: C = undefined; // Aberth update
@@ -324,59 +329,50 @@ pub fn aberth(comptime P: type, max_iter: usize, p: Polynomial(P), s_tilde: Poly
     while (k < max_iter) : (k += 1) {
         var i: usize = 0;
         while (i < n) : (i += 1) {
-            var x_mag: R = fabs(C, x[i]);
+            const x_mag: R = fabs(C, x[i]);
 
             if (x_mag <= 1.0) {
                 px_dpx = quotient(C, eval(P, C, p, x[i]), evalDeriv(P, C, p, x[i]));
             } else {
-                var gamma: C = recip(C, x[i]);
-                var gamma_sqr: C = product(C, gamma, gamma);
+                const gamma: C = recip(C, x[i]);
+                const gamma_sqr: C = product(C, gamma, gamma);
 
                 // tmp is p'_rev(gamma) / p_rev(gamma)    (eqn 13 in Bini paper)
-                var tmp = quotient(C, evalDerivRev(P, C, p, gamma), evalRev(P, C, p, gamma));
+                const tmp = quotient(C, evalDerivRev(P, C, p, gamma), evalRev(P, C, p, gamma));
 
                 var term1: C = undefined;
                 var term2: C = undefined;
 
-                term1.re = @as(R, @floatFromInt(n)) * gamma.re;
-                term1.im = @as(R, @floatFromInt(n)) * gamma.im;
+                term1 = cmath.scale(gamma, @as(R, @floatFromInt(n)));
 
                 term2 = product(C, gamma_sqr, tmp);
 
-                px_dpx.re = term1.re - term2.re;
-                px_dpx.im = term1.im - term2.im;
+                px_dpx = cmath.sub(term1, term2);
 
                 px_dpx = recip(C, px_dpx);
             }
 
-            sum_recip_diff_x.re = 0;
-            sum_recip_diff_x.im = 0;
-
+            var sum_recip_diff_x = C.init(0, 0);
             var j: usize = 0;
 
             while (j < n) : (j += 1) {
                 if (j != i) {
-                    diff_x.re = x[i].re - x[j].re;
-                    diff_x.im = x[i].im - x[j].im;
-
+                    var diff_x = cmath.sub(x[i], x[j]);
                     diff_x = recip(C, diff_x);
-
-                    sum_recip_diff_x.re += diff_x.re;
-                    sum_recip_diff_x.im += diff_x.im;
+                    sum_recip_diff_x = cmath.add(sum_recip_diff_x, diff_x);
                 }
             }
 
             update_den = product(C, px_dpx, sum_recip_diff_x);
-            update_den.re = 1 - update_den.re;
-            update_den.im = 0 - update_den.im;
+            update_den = cmath.sub(C.init(1, 0), update_den);
 
             update = quotient(C, px_dpx, update_den);
 
             // stopping criterion
             if (!stop_flags[i]) {
                 stop_flags[i] = stop_criterion(P, C, p, s_tilde, x[i]);
-                x[i].re = x[i].re - update.re;
-                x[i].im = x[i].im - update.im;
+
+                x[i] = cmath.sub(x[i], update);
             }
         }
     }
@@ -414,8 +410,8 @@ test "\t roots,\t private fn \t product, real\n" {
     const eps = 1e-5;
 
     inline for (.{ f32, f64 }) |R| {
-        var x: R = 10.0;
-        var y: R = 2.2;
+        const x: R = 10.0;
+        const y: R = 2.2;
         var p: R = undefined;
 
         p = product(R, x, y);
@@ -430,8 +426,8 @@ test "\t roots,\t private fn \t product, complex\n" {
     inline for (.{ f32, f64 }) |R| {
         const C: type = Complex(R);
 
-        var x = C.init(0.2, -0.13);
-        var y = C.init(1.5, 0.11);
+        const x = C.init(0.2, -0.13);
+        const y = C.init(1.5, 0.11);
         var p = C.init(undefined, undefined);
 
         p = product(C, x, y);
@@ -445,8 +441,8 @@ test "\t roots,\t private fn \t quotient, real\n" {
     const eps = 1e-5;
 
     inline for (.{ f32, f64 }) |R| {
-        var x: R = 10.0;
-        var y: R = 2.2;
+        const x: R = 10.0;
+        const y: R = 2.2;
         var q: R = undefined;
 
         q = quotient(R, x, y);
@@ -461,8 +457,8 @@ test "\t roots,\t private fn \t quotient, complex\n" {
     inline for (.{ f32, f64 }) |R| {
         const C: type = Complex(R);
 
-        var x = C.init(0.2, -0.13);
-        var y = C.init(1.5, 0.11);
+        const x = C.init(0.2, -0.13);
+        const y = C.init(1.5, 0.11);
         var q = C.init(undefined, undefined);
 
         q = quotient(C, x, y);
@@ -476,7 +472,7 @@ test "\t roots,\t private fn \t recip, real\n" {
     const eps = 1e-5;
 
     inline for (.{ f32, f64 }) |R| {
-        var x: R = 10.0;
+        const x: R = 10.0;
         var y: R = undefined;
 
         y = recip(R, x);
@@ -491,7 +487,7 @@ test "\t roots,\t private fn \t recip, complex\n" {
     inline for (.{ f32, f64 }) |R| {
         const C: type = Complex(R);
 
-        var x = C.init(0.20, -0.13);
+        const x = C.init(0.20, -0.13);
         var y = C.init(undefined, undefined);
 
         y = recip(C, x);
@@ -514,16 +510,16 @@ test "\t roots,\t real polynomial \t roots \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(R).init(allocator, n, n);
-        var x: []C = try allocator.alloc(C, n - 1);
+        const a = try allocator.alloc(R, n);
+        const x: []C = try allocator.alloc(C, n - 1);
 
-        a.val[0] = 1.0;
-        a.val[1] = 1.2;
-        a.val[2] = -3.2;
-        a.val[3] = 2.1;
-        a.val[4] = 3.3;
-        a.val[5] = 3.4;
-        a.val[6] = -4.1;
+        a[0] = 1.0;
+        a[1] = 1.2;
+        a[2] = -3.2;
+        a[3] = 2.1;
+        a[4] = 3.3;
+        a[5] = 3.4;
+        a[6] = -4.1;
 
         try roots(R, allocator, a, x);
 
@@ -566,17 +562,17 @@ test "\t roots,\t real polynomial \t upperConvexHull \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(R).init(allocator, n, n);
+        const a = try allocator.alloc(R, n);
         var k: []usize = try allocator.alloc(usize, n);
         var hull: []R = try allocator.alloc(R, n);
 
-        a.val[0] = 1.0;
-        a.val[1] = 1.2;
-        a.val[2] = -3.2;
-        a.val[3] = 2.1;
-        a.val[4] = 3.3;
-        a.val[5] = 3.4;
-        a.val[6] = -4.1;
+        a[0] = 1.0;
+        a[1] = 1.2;
+        a[2] = -3.2;
+        a[3] = 2.1;
+        a[4] = 3.3;
+        a[5] = 3.4;
+        a[6] = -4.1;
 
         upperConvexHull(R, a, &k, &hull);
 
@@ -602,21 +598,21 @@ test "\t roots,\t real polynomial \t computeModulii \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(R).init(allocator, n, n);
-        a.val[0] = 1.0;
-        a.val[1] = 1.2;
-        a.val[2] = -3.2;
-        a.val[3] = 2.1;
-        a.val[4] = 3.3;
-        a.val[5] = 3.4;
-        a.val[6] = -4.1;
+        const a = try allocator.alloc(R, n);
+        a[0] = 1.0;
+        a[1] = 1.2;
+        a[2] = -3.2;
+        a[3] = 2.1;
+        a[4] = 3.3;
+        a[5] = 3.4;
+        a[6] = -4.1;
 
-        var k: []usize = try allocator.alloc(usize, 3);
+        const k: []usize = try allocator.alloc(usize, 3);
         k[0] = 0;
         k[1] = 2;
         k[2] = 6;
 
-        var u: []R = try allocator.alloc(R, 2);
+        const u: []R = try allocator.alloc(R, 2);
         computeModulii(R, a, k, u);
 
         try std.testing.expectEqual(@as(usize, 2), u.len);
@@ -637,16 +633,16 @@ test "\t roots,\t real polynomial \t initialRootEst \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var k: []usize = try allocator.alloc(usize, 3);
+        const k: []usize = try allocator.alloc(usize, 3);
         k[0] = 0;
         k[1] = 2;
         k[2] = 6;
 
-        var u: []R = try allocator.alloc(R, 2);
+        const u: []R = try allocator.alloc(R, 2);
         u[0] = 0.55901699437;
         u[1] = 0.939921384265;
 
-        var x: []C = try allocator.alloc(C, n - 1);
+        const x: []C = try allocator.alloc(C, n - 1);
         initialRootEst(R, k, u, x);
 
         try std.testing.expectEqual(x.len, n - 1);
@@ -678,18 +674,18 @@ test "\t roots,\t real polynomial \t aberthIterations \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(R).init(allocator, n, n);
-        a.val[0] = 1.0;
-        a.val[1] = 1.2;
-        a.val[2] = -3.2;
-        a.val[3] = 2.1;
-        a.val[4] = 3.3;
-        a.val[5] = 3.4;
-        a.val[6] = -4.1;
+        var a = try allocator.alloc(R, n);
+        a[0] = 1.0;
+        a[1] = 1.2;
+        a[2] = -3.2;
+        a[3] = 2.1;
+        a[4] = 3.3;
+        a[5] = 3.4;
+        a[6] = -4.1;
 
-        var s_tilde = try Polynomial(R).init(allocator, n, n);
-        for (a.val, 0..) |aval, i| {
-            s_tilde.val[i] = fabs(R, aval) * @as(R, @floatFromInt((4 * i + 1)));
+        const s_tilde = try allocator.alloc(R, n);
+        for (a, 0..) |aval, i| {
+            s_tilde[i] = fabs(R, aval) * @as(R, @floatFromInt((4 * i + 1)));
         }
 
         var stop_flags: []bool = try allocator.alloc(bool, n - 1);
@@ -747,24 +743,24 @@ test "\t roots,\t complex polynomial \t roots \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(C).init(allocator, n, n);
-        var x: []C = try allocator.alloc(C, n - 1);
+        var a = try allocator.alloc(C, n);
+        const x: []C = try allocator.alloc(C, n - 1);
 
-        a.val[0].re = 1.0;
-        a.val[1].re = 1.2;
-        a.val[2].re = -3.2;
-        a.val[3].re = 2.1;
-        a.val[4].re = 3.3;
-        a.val[5].re = 3.4;
-        a.val[6].re = -4.1;
+        a[0].re = 1.0;
+        a[1].re = 1.2;
+        a[2].re = -3.2;
+        a[3].re = 2.1;
+        a[4].re = 3.3;
+        a[5].re = 3.4;
+        a[6].re = -4.1;
 
-        a.val[0].im = -1.1;
-        a.val[1].im = 1.12;
-        a.val[2].im = 2.12;
-        a.val[3].im = 1.0;
-        a.val[4].im = 0.13;
-        a.val[5].im = -1.1;
-        a.val[6].im = -1.2;
+        a[0].im = -1.1;
+        a[1].im = 1.12;
+        a[2].im = 2.12;
+        a[3].im = 1.0;
+        a[4].im = 0.13;
+        a[5].im = -1.1;
+        a[6].im = -1.2;
 
         try roots(C, allocator, a, x);
 
@@ -806,25 +802,25 @@ test "\t roots,\t complex polynomial \t upperConvexHull \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(C).init(allocator, n, n);
+        var a = try allocator.alloc(C, n);
         var k: []usize = try allocator.alloc(usize, n);
         var hull: []R = try allocator.alloc(R, n);
 
-        a.val[0].re = 1.0;
-        a.val[1].re = 1.2;
-        a.val[2].re = -3.2;
-        a.val[3].re = 2.1;
-        a.val[4].re = 3.3;
-        a.val[5].re = 3.4;
-        a.val[6].re = -4.1;
+        a[0].re = 1.0;
+        a[1].re = 1.2;
+        a[2].re = -3.2;
+        a[3].re = 2.1;
+        a[4].re = 3.3;
+        a[5].re = 3.4;
+        a[6].re = -4.1;
 
-        a.val[0].im = -1.1;
-        a.val[1].im = 1.12;
-        a.val[2].im = 2.12;
-        a.val[3].im = 1.0;
-        a.val[4].im = 0.13;
-        a.val[5].im = -1.1;
-        a.val[6].im = -1.2;
+        a[0].im = -1.1;
+        a[1].im = 1.12;
+        a[2].im = 2.12;
+        a[3].im = 1.0;
+        a[4].im = 0.13;
+        a[5].im = -1.1;
+        a[6].im = -1.2;
 
         upperConvexHull(C, a, &k, &hull);
 
@@ -852,29 +848,29 @@ test "\t roots,\t complex polynomial \t computeModulii \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(C).init(allocator, n, n);
-        a.val[0].re = 1.0;
-        a.val[1].re = 1.2;
-        a.val[2].re = -3.2;
-        a.val[3].re = 2.1;
-        a.val[4].re = 3.3;
-        a.val[5].re = 3.4;
-        a.val[6].re = -4.1;
+        var a = try allocator.alloc(C, n);
+        a[0].re = 1.0;
+        a[1].re = 1.2;
+        a[2].re = -3.2;
+        a[3].re = 2.1;
+        a[4].re = 3.3;
+        a[5].re = 3.4;
+        a[6].re = -4.1;
 
-        a.val[0].im = -1.1;
-        a.val[1].im = 1.12;
-        a.val[2].im = 2.12;
-        a.val[3].im = 1.0;
-        a.val[4].im = 0.13;
-        a.val[5].im = -1.1;
-        a.val[6].im = -1.2;
+        a[0].im = -1.1;
+        a[1].im = 1.12;
+        a[2].im = 2.12;
+        a[3].im = 1.0;
+        a[4].im = 0.13;
+        a[5].im = -1.1;
+        a[6].im = -1.2;
 
         var k: []usize = try allocator.alloc(usize, 3);
         k[0] = 0;
         k[1] = 2;
         k[2] = 6;
 
-        var u: []R = try allocator.alloc(R, 2);
+        const u: []R = try allocator.alloc(R, 2);
         computeModulii(C, a, k, u);
 
         try std.testing.expectEqual(@as(usize, 2), u.len);
@@ -904,7 +900,7 @@ test "\t roots,\t complex polynomial \t initialRootEst \n" {
         u[0] = 0.62232171385;
         u[1] = 0.97360702387;
 
-        var x: []C = try allocator.alloc(C, n - 1);
+        const x: []C = try allocator.alloc(C, n - 1);
         initialRootEst(R, k, u, x);
 
         try std.testing.expectEqual(@as(usize, n - 1), x.len);
@@ -936,27 +932,27 @@ test "\t roots,\t complex polynomial \t aberthIterations \n" {
         defer arena.deinit();
         const allocator = arena.allocator();
 
-        var a = try Polynomial(C).init(allocator, n, n);
+        var a = try allocator.alloc(C, n);
 
-        a.val[0].re = 1.0;
-        a.val[1].re = 1.2;
-        a.val[2].re = -3.2;
-        a.val[3].re = 2.1;
-        a.val[4].re = 3.3;
-        a.val[5].re = 3.4;
-        a.val[6].re = -4.1;
+        a[0].re = 1.0;
+        a[1].re = 1.2;
+        a[2].re = -3.2;
+        a[3].re = 2.1;
+        a[4].re = 3.3;
+        a[5].re = 3.4;
+        a[6].re = -4.1;
 
-        a.val[0].im = -1.1;
-        a.val[1].im = 1.12;
-        a.val[2].im = 2.12;
-        a.val[3].im = 1.0;
-        a.val[4].im = 0.13;
-        a.val[5].im = -1.1;
-        a.val[6].im = -1.2;
+        a[0].im = -1.1;
+        a[1].im = 1.12;
+        a[2].im = 2.12;
+        a[3].im = 1.0;
+        a[4].im = 0.13;
+        a[5].im = -1.1;
+        a[6].im = -1.2;
 
-        var s_tilde = try Polynomial(R).init(allocator, n, n);
-        for (a.val, 0..) |aval, i| {
-            s_tilde.val[i] = fabs(C, aval) * @as(R, @floatFromInt((4 * i + 1)));
+        var s_tilde = try allocator.alloc(R, n);
+        for (a, 0..) |aval, i| {
+            s_tilde[i] = fabs(C, aval) * @as(R, @floatFromInt((4 * i + 1)));
         }
 
         var stop_flags: []bool = try allocator.alloc(bool, n - 1);
