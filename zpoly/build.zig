@@ -5,11 +5,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const zpoly = b.addModule("zpoly_import_name", .{
-        .root_source_file = .{ .path = "./zpoly.zig" },
+        .root_source_file = b.path("./zpoly.zig"),
     });
 
     const zpoly_tests = b.addTest(.{
-        .root_source_file = .{ .path = "./zpoly_test.zig" },
+        .root_source_file = b.path ("./zpoly_test.zig"),
         .target = target,
         .optimize = optimize,
     });
