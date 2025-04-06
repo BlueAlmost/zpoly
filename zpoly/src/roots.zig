@@ -44,10 +44,8 @@ fn allocStructSlices(allocator: Allocator, X: anytype, args: anytype) ![]align(@
         end = start + f_bytes;
 
         // partition raw into slice for field, and set length
-        @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name) =
-            @alignCast(bytesAsSlice(child_type, raw_bytes[start..end]));
-
-        @field(X.*, @typeInfo(@TypeOf(X.*)).Struct.fields[i].name).len = args[i];
+        @field(X.*, f.name) = @alignCast(bytesAsSlice(child_type, raw_bytes[start..end]));
+        @field(X.*, f.name).len = args[i];
 
         // calculate start for nextnext struct field
         start = end + @sizeOf(usize) - @rem(end, @sizeOf(usize));
